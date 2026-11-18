@@ -159,8 +159,10 @@ services:
       KONG_PG_DATABASE: ${POSTGRES_DB:-nexotin}
       KONG_PROXY_PORT: 8000
       KONG_ADMIN_PORT: 8001
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
       KONG_PROXY_TLS: "off"
       KONG_ADMIN_TLS: "off"
+    command: ["sh", "-c", "kong migrations bootstrap && kong start"]
     depends_on:
       postgres:
         condition: service_healthy
