@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
 from app.routers.auth import router as auth_router
-from app.routers.get_one_product import router as get_one_product_router
+from app.routers.marketplace import router as marketplace_router
 from app.routers.vendors import router as vendors_router
 
 @asynccontextmanager
@@ -32,7 +32,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(vendors_router)
-app.include_router(get_one_product_router, prefix="/api")
+app.include_router(marketplace_router)
 
 
 @app.get("/", tags=["health"])
