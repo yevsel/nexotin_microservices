@@ -140,6 +140,31 @@ services:
       retries: 3
       start_period: 20s
 
+  # Kong API gateway — reverse proxy in front of the FastAPI services.
+  # Proxy (public) on host ${KONG_PROXY_PORT:-8004} -> container :8000
+  # Admin API (internal) on host ${KONG_ADMIN_PORT:-8005} -> container :8001
+  kong:
+    image: kong:3
+    container_name: nexotin-kong
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${KONG_PROXY_PORT:-8004}:8000"
+      - "127.0.0.1:${KONG_ADMIN_PORT:-8005}:8001"
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: postgres
+      KONG_PG_PORT: 5432
+      KONG_PG_USER: ${POSTGRES_USER:-nexotin}
+      KONG_PG_PASSWORD: ${POSTGRES_PASSWORD:-nexotin_dev_password}
+      KONG_PG_DATABASE: ${POSTGRES_DB:-nexotin}
+      KONG_PROXY_PORT: 8000
+      KONG_ADMIN_PORT: 8001
+      KONG_PROXY_TLS: "off"
+      KONG_ADMIN_TLS: "off"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   celery-worker:
     <<: *app-base
     container_name: nexotin-celery-worker
