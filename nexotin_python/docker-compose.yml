@@ -1,0 +1,223 @@
+name: nexotin
+
+# Local stack for the FastAPI port of the Nexotin server.
+#
+#   docker compose up -d      # starts every service
+#   docker compose ps         # shows what is running
+#   docker compose down       # stops everything
+#
+# API:   http://localhost:8000/docs
+# Adminer: http://localhost:8081
+# RabbitMQ: http://localhost:15672
+# Flower: http://localhost:5555
+
+x-app-base: &app-base
+  image: python:3.12-slim
+  working_dir: /app
+  restart: unless-stopped
+  volumes:
+    - .:/app
+    - pip_cache:/root/.cache/pip
+  # Optional: any keys in .env (Cloudinary, Twilio, SMTP, JWT secrets, etc.)
+  # are passed through to the app. `environment` below wins on conflicts.
+  env_file:
+    - path: ./.env
+      required: false
+  environment:
+    PYTHONUNBUFFERED: "1"
+    PYTHONDONTWRITEBYTECODE: "1"
+    PYTHONPATH: /app
+    PORT: "8000"
+    # psycopg 3 driver (installed from requirements.txt). It supports both
+    # SQLAlchemy sync and async engines.
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-nexotin}:${POSTGRES_PASSWORD:-nexotin_dev_password}@postgres:5432/${POSTGRES_DB:-nexotin}
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: ${POSTGRES_USER:-nexotin}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexotin_dev_password}
+    POSTGRES_DB: ${POSTGRES_DB:-nexotin}
+    REDIS_URL: redis://redis:6379/0
+    RABBITMQ_HOST: rabbitmq
+    RABBITMQ_PORT: "5672"
+    RABBITMQ_USER: ${RABBITMQ_USER:-nexotin}
+    RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-nexotin_rabbit_password}
+    RABBITMQ_VHOST: "/"
+    # Broker uses the default "/" vhost, hence the double slash at the end.
+    CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-nexotin}:${RABBITMQ_PASSWORD:-nexotin_rabbit_password}@rabbitmq:5672//
+    # Redis is reused as Celery's result backend (db 1, separate from app cache).
+    CELERY_RESULT_BACKEND: redis://redis:6379/1
+    UVICORN_APP: ${UVICORN_APP:-app.main:app}
+    CELERY_APP: ${CELERY_APP:-app.celery_app:celery_app}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: nexotin-postgres
+    restart: unless-stopped
+    ports:
+      # Host-only: keeps the local database off your network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nexotin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexotin_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-nexotin}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexotin-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: nexotin-rabbitmq
+    # Stable hostname keeps the RabbitMQ node name consistent across recreates,
+    # which matters because its data lives in a persistent volume.
+    hostname: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-nexotin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-nexotin_rabbit_password}
+      RABBITMQ_NODENAME: rabbit@rabbitmq
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  api:
+    <<: *app-base
+    container_name: nexotin-api
+    ports:
+      # Set API_PORT=4500 in .env to mirror the old Node server's port.
+      - "${API_PORT:-8000}:8000"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -f requirements.txt ]; then
+          pip install --disable-pip-version-check -r requirements.txt
+        fi
+        exec uvicorn "$${UVICORN_APP}" --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health')
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  celery-worker:
+    <<: *app-base
+    container_name: nexotin-celery-worker
+    stop_grace_period: 30s
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -f requirements.txt ]; then
+          pip install --disable-pip-version-check -r requirements.txt
+        fi
+        exec celery -A "$${CELERY_APP}" worker --loglevel=info
+
+  celery-beat:
+    <<: *app-base
+    container_name: nexotin-celery-beat
+    volumes:
+      - .:/app
+      - pip_cache:/root/.cache/pip
+      - celerybeat_data:/var/run/celery
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -f requirements.txt ]; then
+          pip install --disable-pip-version-check -r requirements.txt
+        fi
+        exec celery -A "$${CELERY_APP}" beat \
+          --loglevel=info \
+          --schedule=/var/run/celery/celerybeat-schedule
+
+  flower:
+    <<: *app-base
+    container_name: nexotin-flower
+    ports:
+      - "127.0.0.1:${FLOWER_PORT:-5555}:5555"
+    environment:
+      # Flower 2.x gates /api/* behind this. Without it the web UI loads
+      # but its tables stay empty.
+      FLOWER_UNAUTHENTICATED_API: "1"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -f requirements.txt ]; then
+          pip install --disable-pip-version-check -r requirements.txt
+        fi
+        exec celery -A "$${CELERY_APP}" flower --port=5555
+
+  adminer:
+    image: adminer:4
+    container_name: nexotin-adminer
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ADMINER_PORT:-8081}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DEFAULT_DRIVER: pgsql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: nexotin-redis-insight
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_INSIGHT_PORT:-5540}:5540"
+    volumes:
+      - redisinsight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  celerybeat_data:
+  pip_cache:
+  redisinsight_data:

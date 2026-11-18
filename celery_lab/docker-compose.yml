@@ -1,0 +1,73 @@
+name: celery-lab
+
+# A throwaway lab for learning Celery + RabbitMQ.
+# It does not touch the nexotin project. Different ports, different containers.
+#
+#   RabbitMQ UI:  http://localhost:15673
+#   Flower:       http://localhost:5557
+#   AMQP:         amqp://lab:lab_password@localhost:5673//
+
+x-app: &app
+  build: .
+  environment:
+    CELERY_BROKER_URL: amqp://lab:lab_password@rabbitmq:5672//
+    CELERY_RESULT_BACKEND: redis://redis:6379/0
+  volumes:
+    - .:/app
+  depends_on:
+    rabbitmq:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: lab-rabbitmq
+    ports:
+      - "127.0.0.1:5673:5672"
+      - "127.0.0.1:15673:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: lab
+      RABBITMQ_DEFAULT_PASS: lab_password
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: lab-redis
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # No container_name here, so you can scale it:
+  #   docker compose up -d --scale worker=3
+  worker:
+    <<: *app
+    command: celery -A tasks worker --loglevel=info --concurrency=${CONCURRENCY:-4}
+
+  # The HTTP side. Hit /stress-test and it floods the queue.
+  api:
+    <<: *app
+    command: uvicorn api:fastapi_app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "127.0.0.1:8001:8000"
+
+  flower:
+    <<: *app
+    environment:
+      CELERY_BROKER_URL: amqp://lab:lab_password@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      # Flower 2.x gates /api/* behind this. Without it the web UI loads
+      # but its tables stay empty.
+      FLOWER_UNAUTHENTICATED_API: "1"
+    command: celery -A tasks flower --port=5557
+    ports:
+      - "127.0.0.1:5557:5557"
