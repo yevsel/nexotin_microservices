@@ -28,9 +28,9 @@ curl -s -o /dev/null -X POST "$ADMIN/services/nexotin-api/routes" \
   -H 'Content-Type: application/json' \
   -d '{"name":"marketplace-route","paths":["/api/marketplace"],"strip_path":false,"preserve_host":false}' || true
 
-echo "Enabling prometheus plugin globally"
+echo "Enabling prometheus plugin globally (with metrics)"
 curl -s -o /dev/null -X POST "$ADMIN/plugins" \
   -H 'Content-Type: application/json' \
-  -d '{"name":"prometheus"}' || true
+  -d '{"name":"prometheus","config":{"latency_metrics":true,"status_code_metrics":true,"bandwidth_metrics":true,"per_consumer":false,"upstream_health_metrics":true,"ai_metrics":false}}' || true
 
 echo "Kong seed done."
