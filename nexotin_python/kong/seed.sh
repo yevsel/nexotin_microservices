@@ -18,4 +18,9 @@ curl -s -o /dev/null -X POST "$ADMIN/services/nexotin-api/routes" \
   -H 'Content-Type: application/json' \
   -d '{"name":"auth-route","paths":["/api/auth"],"strip_path":false,"preserve_host":false}' || true
 
+echo "Seeding route: vendors-route -> /api/vendors"
+curl -s -o /dev/null -X POST "$ADMIN/services/nexotin-api/routes" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"vendors-route","paths":["/api/vendors"],"strip_path":false,"preserve_host":false}' || true
+
 echo "Kong seed done."
