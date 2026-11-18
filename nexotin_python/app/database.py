@@ -11,7 +11,14 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://nexotin:nexotin_dev_password@localhost:5432/nexotin",
 )
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=20,
+    max_overflow=40,
+    pool_timeout=30,
+    pool_recycle=1800,
+)
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
