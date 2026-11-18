@@ -167,6 +167,21 @@ services:
       postgres:
         condition: service_healthy
 
+  # One-shot seeder: makes sure Kong has the nexotin services/routes.
+  # Runs once on `docker compose up`, then exits. Idempotent.
+  kong-init:
+    image: curlimages/curl:8.10.1
+    container_name: nexotin-kong-init
+    restart: "no"
+    depends_on:
+      kong:
+        condition: service_healthy
+    volumes:
+      - ./kong/seed.sh:/seed.sh:ro
+    entrypoint: ["/bin/sh", "/seed.sh"]
+    environment:
+      - ADMIN=http://kong:8001
+
   celery-worker:
     <<: *app-base
     container_name: nexotin-celery-worker
