@@ -28,4 +28,9 @@ curl -s -o /dev/null -X POST "$ADMIN/services/nexotin-api/routes" \
   -H 'Content-Type: application/json' \
   -d '{"name":"marketplace-route","paths":["/api/marketplace"],"strip_path":false,"preserve_host":false}' || true
 
+echo "Enabling prometheus plugin globally"
+curl -s -o /dev/null -X POST "$ADMIN/plugins" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"prometheus"}' || true
+
 echo "Kong seed done."

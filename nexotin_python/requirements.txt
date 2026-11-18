@@ -10,3 +10,4 @@ pyjwt>=2.9,<3.0
 python-dateutil>=2.9,<3.0
 celery[redis]>=5.4,<6.0
 flower>=2.0,<3.0
+prometheus-fastapi-instrumentator>=7.0,<8.0

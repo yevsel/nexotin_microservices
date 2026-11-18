@@ -34,6 +34,13 @@ app.include_router(auth_router)
 app.include_router(vendors_router)
 app.include_router(marketplace_router)
 
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+except ImportError:
+    pass
+
 
 @app.get("/", tags=["health"])
 def root() -> dict[str, str]:

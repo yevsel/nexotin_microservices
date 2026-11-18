@@ -150,6 +150,7 @@ services:
     ports:
       - "127.0.0.1:${KONG_PROXY_PORT:-8004}:8000"
       - "127.0.0.1:${KONG_ADMIN_PORT:-8005}:8001"
+      - "127.0.0.1:8007:8007"
     environment:
       KONG_DATABASE: postgres
       KONG_PG_HOST: postgres
@@ -160,6 +161,7 @@ services:
       KONG_PROXY_PORT: 8000
       KONG_ADMIN_PORT: 8001
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_STATUS_LISTEN: 0.0.0.0:8007
       KONG_PROXY_TLS: "off"
       KONG_ADMIN_TLS: "off"
     command: ["sh", "-c", "kong migrations bootstrap && kong start"]
@@ -181,6 +183,58 @@ services:
     entrypoint: ["/bin/sh", "/seed.sh"]
     environment:
       - ADMIN=http://kong:8001
+
+  # Observability: Prometheus scrapes Kong, the API, Postgres, Redis, RabbitMQ.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: nexotin-prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: nexotin-grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    depends_on:
+      - prometheus
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: nexotin-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-nexotin}:${POSTGRES_PASSWORD:-nexotin_dev_password}@postgres:5432/${POSTGRES_DB:-nexotin}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    container_name: nexotin-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
 
   celery-worker:
     <<: *app-base
@@ -257,6 +311,8 @@ services:
         condition: service_healthy
 
 volumes:
+  grafana_data:
+  prometheus_data:
   postgres_data:
   redis_data:
   rabbitmq_data:
