@@ -4,9 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers.create_account import router as create_account_router
+from app.routers.auth import router as auth_router
 from app.routers.get_one_product import router as get_one_product_router
-from app.routers.login_account import router as login_account_router
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -30,9 +29,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(create_account_router, prefix="/api")
+app.include_router(auth_router)
 app.include_router(get_one_product_router, prefix="/api")
-app.include_router(login_account_router, prefix="/api")
 
 
 @app.get("/", tags=["health"])
